@@ -31,8 +31,16 @@ export async function POST(req: Request) {
     onFinish: async () => {
       await closeMcpClients(clients)
     },
+    // onFinish does not fire when the stream errors (e.g. a missing/invalid
+    // key 401s). Close here too so MCP connections never leak on the error path.
+    onError: async () => {
+      await closeMcpClients(clients)
+    },
   })
 
+  // Forward reasoning parts to the client when the chosen model emits them.
+  // (Groq's llama-3.3-70b default is not a reasoning model, so this is a no-op
+  // for it; it renders reasoning only when a reasoning-capable model is used.)
   return result.toDataStreamResponse({
     sendReasoning: true,
   })

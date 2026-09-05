@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react"
 import { useChat, type Message, type UseChatOptions } from "@ai-sdk/react"
+import type { ToolInvocation } from "ai"
 
 import { saveThread } from "@/lib/agent/thread-store"
 import { HITL_TOOLS } from "@/lib/agent/tools"
@@ -27,37 +28,38 @@ type PendingApproval = {
 const HITL_SET = new Set<string>(HITL_TOOLS)
 
 /**
- * Finds tool calls that are awaiting human approval: HITL tools that have been
- * called but do not yet have a result. Scans both the `parts` array (current
- * AI SDK message shape) and the legacy `toolInvocations` array.
+ * Finds HITL tool calls awaiting approval on the LAST assistant message only.
+ *
+ * Only `state === "call"` counts as pending: that is a finalized tool call with
+ * complete args and no result yet. `partial-call` is still streaming its args,
+ * so approving it would fire `addToolResult` for a call the SDK has not
+ * finalized. Scanning only the last assistant message avoids re-surfacing a
+ * card for an already-resolved call earlier in the history.
  */
 function findPendingApprovals(messages: Message[]): PendingApproval[] {
+  const lastAssistant = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant")
+  if (!lastAssistant) return []
+
+  const invocations = [
+    ...(lastAssistant.parts ?? [])
+      .filter((p) => p.type === "tool-invocation")
+      .map((p) => (p as { toolInvocation: ToolInvocation }).toolInvocation),
+    ...((lastAssistant.toolInvocations as ToolInvocation[]) ?? []),
+  ]
+
   const pending: PendingApproval[] = []
-
-  for (const message of messages) {
-    if (message.role !== "assistant") continue
-
-    const invocations = [
-      ...(message.parts ?? [])
-        .filter((p) => p.type === "tool-invocation")
-        .map((p) => (p as { toolInvocation: any }).toolInvocation),
-      ...((message.toolInvocations as any[]) ?? []),
-    ]
-
-    for (const inv of invocations) {
-      if (!inv) continue
-      const isPending = inv.state === "call" || inv.state === "partial-call"
-      if (isPending && HITL_SET.has(inv.toolName)) {
-        // Dedupe by toolCallId (parts + legacy array can overlap).
-        if (!pending.some((p) => p.toolCallId === inv.toolCallId)) {
-          pending.push({
-            toolCallId: inv.toolCallId,
-            toolName: inv.toolName,
-            args: (inv.args ?? {}) as Record<string, unknown>,
-          })
-        }
-      }
-    }
+  for (const inv of invocations) {
+    if (!inv || inv.state !== "call") continue
+    if (!HITL_SET.has(inv.toolName)) continue
+    // Dedupe by toolCallId (parts + legacy array can overlap).
+    if (pending.some((p) => p.toolCallId === inv.toolCallId)) continue
+    pending.push({
+      toolCallId: inv.toolCallId,
+      toolName: inv.toolName,
+      args: (inv.args ?? {}) as Record<string, unknown>,
+    })
   }
 
   return pending
@@ -105,12 +107,13 @@ export function AgentChat({
 
   const isLoading = status === "submitted" || status === "streaming"
 
-  // Persist the conversation to localStorage whenever it changes.
+  // Persist only once the stream settles, not on every streamed token — avoids
+  // O(n) localStorage writes per response (and blowing the ~5MB quota).
   useEffect(() => {
-    if (messages.length > 0) {
+    if (status === "ready" && messages.length > 0) {
       saveThread(threadId, messages)
     }
-  }, [threadId, messages])
+  }, [threadId, status, messages])
 
   const pendingApprovals = useMemo(
     () => findPendingApprovals(messages),

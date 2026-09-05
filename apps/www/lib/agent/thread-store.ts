@@ -6,7 +6,6 @@ import type { Message } from "@ai-sdk/react"
  */
 
 const KEY_PREFIX = "agent-thread:"
-const INDEX_KEY = "agent-thread:index"
 
 function isBrowser(): boolean {
   return typeof window !== "undefined"
@@ -35,26 +34,7 @@ export function saveThread(id: string, messages: Message[]): void {
   if (!isBrowser()) return
   try {
     window.localStorage.setItem(KEY_PREFIX + id, JSON.stringify(messages))
-    addToIndex(id)
   } catch {
     // Ignore quota / serialization errors — memory is best-effort.
-  }
-}
-
-export function listThreads(): string[] {
-  if (!isBrowser()) return []
-  try {
-    const raw = window.localStorage.getItem(INDEX_KEY)
-    return raw ? (JSON.parse(raw) as string[]) : []
-  } catch {
-    return []
-  }
-}
-
-function addToIndex(id: string): void {
-  const ids = listThreads()
-  if (!ids.includes(id)) {
-    ids.push(id)
-    window.localStorage.setItem(INDEX_KEY, JSON.stringify(ids))
   }
 }

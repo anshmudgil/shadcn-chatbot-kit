@@ -51,14 +51,3 @@ export const agentTools: ToolSet = {
     }),
   }),
 }
-
-/**
- * Returns the subset of a toolset that requires human confirmation — i.e.
- * tools defined without an `execute` function.
- */
-export function getToolsRequiringConfirmation(tools: ToolSet): string[] {
-  return Object.keys(tools).filter(
-    (name) =>
-      typeof (tools[name] as { execute?: unknown }).execute !== "function"
-  )
-}
