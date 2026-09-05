@@ -29,6 +29,15 @@ export function MainNav() {
           Demo
         </Link>
         <Link
+          href="/agent"
+          className={cn(
+            "transition-colors hover:text-foreground/80",
+            pathname === "/agent" ? "text-foreground" : "text-foreground/60"
+          )}
+        >
+          Agent
+        </Link>
+        <Link
           href="/docs"
           className={cn(
             "transition-colors hover:text-foreground/80",
